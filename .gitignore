@@ -15,3 +15,24 @@ export_credentials.cfg
 .mono/
 data_*/
 mono_crash.*.json
+# Godot generated files
+.godot/
+.import/
+
+# Exports / builds
+exports/
+*.apk
+*.aab
+
+# Android signing keys - do not upload
+*.keystore
+*.jks
+*.p12
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs/temp
+*.log
+*.tmp
