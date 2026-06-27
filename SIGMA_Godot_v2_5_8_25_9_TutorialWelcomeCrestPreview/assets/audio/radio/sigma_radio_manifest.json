@@ -1,6 +1,0 @@
-{
-  "name": "SIGMA Radio",
-  "version": "v2.5.8.25.6",
-  "stations": [],
-  "note": "Runtime placeholder manifest so the hardcoded radio manifest path resolves cleanly."
-}

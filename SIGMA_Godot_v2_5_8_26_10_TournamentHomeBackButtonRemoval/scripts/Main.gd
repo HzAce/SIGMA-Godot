@@ -6,7 +6,7 @@ const TOURNAMENT_SAVE_PATH := "user://sigma_tournament.save"
 const TOURNAMENT_SAVE_FILE_NAME := "sigma_tournament.save"
 const TOURNAMENT_MATCH_SAVE_PATH := "user://sigma_tournament_current_match.save"
 const TOURNAMENT_MATCH_SAVE_FILE_NAME := "sigma_tournament_current_match.save"
-const BUILD_VERSION := "v2.5.8.25"
+const BUILD_VERSION := "v2.5.8.26.6"
 const PIECE_SET_CLASSIC_SIGMA := "classic_sigma_tokens"
 const PIECE_SET_VECTOR := "vector_obelisks"
 const PIECE_SET_DRACONIAN := "draconian"
@@ -101,16 +101,29 @@ var tutorial_replay_button: Button
 var settings_button: Button
 var sound_button: Button
 var mute_button: Button
+var music_toggle_button: Button
 var master_volume_slider: HSlider
 var sfx_volume_slider: HSlider
 var music_volume_slider: HSlider
 var audio_status_label: Label
 var radio_status_label: Label
+var radio_now_playing_label: Label
 var radio_toggle_button: Button
 var radio_shuffle_button: Button
 var radio_next_button: Button
+var radio_prev_button: Button
+var radio_station_button: Button
 var radio_reset_button: Button
 var radio_track_buttons: Dictionary = {}
+var radio_station_panel: PanelContainer
+var radio_station_now_label: Label
+var radio_station_artist_label: Label
+var radio_station_status_label: Label
+var radio_station_mode_button: Button
+var radio_station_next_button: Button
+var radio_station_prev_button: Button
+var radio_station_track_buttons: Dictionary = {}
+var radio_animation_phase: float = 0.0
 var preview_panel: PanelContainer
 var preview_title_label: Label
 var preview_body_label: Label
@@ -315,6 +328,7 @@ func _ready() -> void:
 	_init_tutorial_steps()
 	_init_rules_guide_pages()
 	_build_ui()
+	resized.connect(_refresh_responsive_static_images)
 	_sync_audio_from_manager()
 	_start_new_game(false)
 	_show_first_time_menu()
@@ -322,6 +336,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_update_resume_countdown(delta)
 	_update_speed_timer(delta)
+	_update_radio_now_playing_animation(delta)
 
 func _build_ui() -> void:
 	var bg: ColorRect = ColorRect.new()
@@ -416,6 +431,7 @@ func _build_ui() -> void:
 
 	_build_tutorial_panel(board_holder_ref)
 	_build_settings_panel(board_holder_ref)
+	_build_radio_station_panel(board_holder_ref)
 	_build_rules_guide_panel(board_holder_ref)
 	_build_collections_panel(board_holder_ref)
 	_build_custom_game_panel(board_holder_ref)
@@ -907,8 +923,7 @@ func _make_reserve_piece_tile(owner: int, kind: String, active: bool, tile_size:
 	if tex != null:
 		var img: TextureRect = TextureRect.new()
 		img.texture = tex
-		img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_configure_static_image(img, "contain")
 		img.custom_minimum_size = Vector2(tile_size, tile_size)
 		img.size = Vector2(tile_size, tile_size)
 		tile.add_child(img)
@@ -1288,6 +1303,65 @@ func _make_center_panel(panel_name: String, min_size: Vector2) -> PanelContainer
 	return panel
 
 
+
+
+func _configure_static_image(image: TextureRect, mode: String = "contain") -> void:
+	if image == null:
+		return
+	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	match mode:
+		"cover":
+			image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		"fit":
+			image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+		_:
+			image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+func _responsive_static_size(width_ratio: float, height_ratio: float, min_size: Vector2, max_size: Vector2) -> Vector2:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return min_size
+	return Vector2(
+		clamp(viewport_size.x * width_ratio, min_size.x, max_size.x),
+		clamp(viewport_size.y * height_ratio, min_size.y, max_size.y)
+	)
+
+func _responsive_static_height(height_ratio: float, min_value: float, max_value: float) -> float:
+	var viewport_size: Vector2 = get_viewport_rect().size
+	if viewport_size.y <= 0.0:
+		return min_value
+	return clamp(viewport_size.y * height_ratio, min_value, max_value)
+
+func _static_image_draw_rect(image: TextureRect, container_size: Vector2, mode: String = "contain", max_width_ratio: float = 1.0, max_height_ratio: float = 1.0) -> Rect2:
+	if image == null or image.texture == null:
+		return Rect2(Vector2.ZERO, Vector2.ZERO)
+	var texture_size: Vector2 = image.texture.get_size()
+	if container_size.x <= 0.0 or container_size.y <= 0.0 or texture_size.x <= 0.0 or texture_size.y <= 0.0:
+		return Rect2(Vector2.ZERO, Vector2.ZERO)
+	var target_size: Vector2 = container_size
+	if mode != "cover":
+		target_size = Vector2(container_size.x * max_width_ratio, container_size.y * max_height_ratio)
+	var scale_value: float = 1.0
+	if mode == "cover":
+		scale_value = max(container_size.x / texture_size.x, container_size.y / texture_size.y)
+	else:
+		scale_value = min(target_size.x / texture_size.x, target_size.y / texture_size.y)
+	var draw_size: Vector2 = texture_size * scale_value
+	return Rect2((container_size - draw_size) * 0.5, draw_size)
+
+func _layout_static_image(image: TextureRect, container_size: Vector2, mode: String = "contain", max_width_ratio: float = 1.0, max_height_ratio: float = 1.0) -> Rect2:
+	var draw_rect: Rect2 = _static_image_draw_rect(image, container_size, mode, max_width_ratio, max_height_ratio)
+	if image != null and draw_rect.size != Vector2.ZERO:
+		image.position = draw_rect.position
+		image.size = draw_rect.size
+	return draw_rect
+
+func _refresh_responsive_static_images() -> void:
+	_layout_startup_splash_art()
+	_layout_main_menu_art()
+	if rules_guide_visual_texture != null:
+		rules_guide_visual_texture.custom_minimum_size = Vector2(0, _responsive_static_height(0.14, 130.0, 190.0))
 
 func _make_rounded_style(bg: Color, border: Color, border_width: int = 2, radius: int = 14) -> StyleBoxFlat:
 	var style: StyleBoxFlat = StyleBoxFlat.new()
@@ -1858,11 +1932,18 @@ func _build_settings_panel(parent: Control) -> void:
 	safe_margin.add_theme_constant_override("margin_bottom", 14)
 	settings_panel.add_child(safe_margin)
 
+	var settings_scroll: ScrollContainer = ScrollContainer.new()
+	settings_scroll.name = "SettingsScroll"
+	settings_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	settings_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	settings_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	safe_margin.add_child(settings_scroll)
+
 	var page: VBoxContainer = VBoxContainer.new()
 	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_theme_constant_override("separation", 8)
-	safe_margin.add_child(page)
+	settings_scroll.add_child(page)
 
 	var top_row: HBoxContainer = HBoxContainer.new()
 	top_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1883,7 +1964,7 @@ func _build_settings_panel(parent: Control) -> void:
 	title_box.add_child(title)
 
 	var note: Label = Label.new()
-	note.text = "Sound. Radio. Quick tools."
+	note.text = "Sound. Radio. Utilities."
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	note.add_theme_font_size_override("font_size", 14)
 	note.add_theme_color_override("font_color", Color("#B8C4D8"))
@@ -1912,7 +1993,6 @@ func _build_settings_panel(parent: Control) -> void:
 
 	var audio_card: PanelContainer = PanelContainer.new()
 	audio_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	audio_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	audio_card.add_theme_stylebox_override("panel", _make_rounded_style(Color("#050917", 0.96), Color("#00D1FF", 0.65), 2, 24))
 	card_grid.add_child(audio_card)
 	var audio_margin: MarginContainer = MarginContainer.new()
@@ -1920,10 +2000,10 @@ func _build_settings_panel(parent: Control) -> void:
 	audio_margin.add_theme_constant_override("margin_right", 10)
 	audio_margin.add_theme_constant_override("margin_top", 10)
 	audio_margin.add_theme_constant_override("margin_bottom", 10)
+	audio_card.custom_minimum_size = Vector2(0, 290)
 	audio_card.add_child(audio_margin)
 	var audio_box: VBoxContainer = VBoxContainer.new()
 	audio_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	audio_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	audio_box.add_theme_constant_override("separation", 7)
 	audio_margin.add_child(audio_box)
 
@@ -1934,10 +2014,12 @@ func _build_settings_panel(parent: Control) -> void:
 	audio_label.add_theme_color_override("font_color", Color("#F2C14E"))
 	audio_box.add_child(audio_label)
 
-	sound_button = _add_button(audio_box, "Sound: ON", "Toggle sound effects.", _on_settings_sound)
+	sound_button = _add_button(audio_box, "SFX: ON", "Toggle sound effects.", _on_settings_sound)
 	sound_button.custom_minimum_size = Vector2(0, 50)
 	mute_button = _add_button(audio_box, "Mute: OFF", "Mute all audio.", _on_settings_mute)
 	mute_button.custom_minimum_size = Vector2(0, 50)
+	music_toggle_button = _add_button(audio_box, "Music: ON", "Toggle default music and SIGMA Radio.", _on_settings_music_toggle)
+	music_toggle_button.custom_minimum_size = Vector2(0, 50)
 
 	audio_status_label = Label.new()
 	audio_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -2006,6 +2088,7 @@ func _build_settings_panel(parent: Control) -> void:
 	var radio_card: PanelContainer = PanelContainer.new()
 	radio_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	radio_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	radio_card.custom_minimum_size = Vector2(0, 500)
 	radio_card.add_theme_stylebox_override("panel", _make_rounded_style(Color("#050917", 0.96), Color("#D4AF37", 0.72), 2, 24))
 	card_grid.add_child(radio_card)
 	var radio_margin: MarginContainer = MarginContainer.new()
@@ -2017,7 +2100,7 @@ func _build_settings_panel(parent: Control) -> void:
 	var radio_box: VBoxContainer = VBoxContainer.new()
 	radio_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	radio_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	radio_box.add_theme_constant_override("separation", 7)
+	radio_box.add_theme_constant_override("separation", 10)
 	radio_margin.add_child(radio_box)
 
 	var radio_label: Label = Label.new()
@@ -2027,32 +2110,73 @@ func _build_settings_panel(parent: Control) -> void:
 	radio_label.add_theme_color_override("font_color", Color("#F2C14E"))
 	radio_box.add_child(radio_label)
 
+	var band_label: Label = Label.new()
+	band_label.text = "SIGMA FM · Player Radio Override"
+	band_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	band_label.add_theme_font_size_override("font_size", 12)
+	band_label.add_theme_color_override("font_color", Color("#89E3FF"))
+	radio_box.add_child(band_label)
+
 	radio_status_label = Label.new()
 	radio_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	radio_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	radio_status_label.add_theme_font_size_override("font_size", 12)
+	radio_status_label.add_theme_font_size_override("font_size", 13)
 	radio_status_label.add_theme_color_override("font_color", Color("#B8C4D8"))
 	radio_box.add_child(radio_status_label)
 
-	radio_toggle_button = _add_button(radio_box, "Radio: OFF", "Use your music pool.", _on_radio_toggle)
-	radio_toggle_button.custom_minimum_size = Vector2(0, 48)
-	radio_shuffle_button = _add_button(radio_box, "Shuffle: ON", "Shuffle radio.", _on_radio_shuffle_toggle)
-	radio_shuffle_button.custom_minimum_size = Vector2(0, 48)
-	radio_next_button = _add_button(radio_box, "Next Track", "Skip track.", _on_radio_next_track)
-	radio_next_button.custom_minimum_size = Vector2(0, 48)
+	var now_card: PanelContainer = PanelContainer.new()
+	now_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	now_card.add_theme_stylebox_override("panel", _make_rounded_style(Color("#0A1024", 0.94), Color("#F2C14E", 0.70), 2, 22))
+	radio_box.add_child(now_card)
+	var now_margin: MarginContainer = MarginContainer.new()
+	now_margin.add_theme_constant_override("margin_left", 12)
+	now_margin.add_theme_constant_override("margin_right", 12)
+	now_margin.add_theme_constant_override("margin_top", 10)
+	now_margin.add_theme_constant_override("margin_bottom", 10)
+	now_card.add_child(now_margin)
+	radio_now_playing_label = Label.new()
+	radio_now_playing_label.name = "RadioNowPlayingLabel"
+	radio_now_playing_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	radio_now_playing_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	radio_now_playing_label.add_theme_font_size_override("font_size", 18)
+	radio_now_playing_label.add_theme_color_override("font_color", Color("#F2C14E"))
+	now_margin.add_child(radio_now_playing_label)
+
+	var radio_help_label: Label = Label.new()
+	radio_help_label.text = "Radio overrides default music while ON."
+	radio_help_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	radio_help_label.add_theme_font_size_override("font_size", 12)
+	radio_help_label.add_theme_color_override("font_color", Color("#9DB4C8"))
+	radio_box.add_child(radio_help_label)
+
+	radio_toggle_button = _add_button(radio_box, "SIGMA Radio: OFF", "Override default music with your selected music pool.", _on_radio_toggle)
+	radio_toggle_button.custom_minimum_size = Vector2(0, 52)
+	radio_shuffle_button = _add_button(radio_box, "Play Mode: Random", "Switch between Random and Playlist order.", _on_radio_shuffle_toggle)
+	radio_shuffle_button.custom_minimum_size = Vector2(0, 52)
+	var skip_row: HBoxContainer = HBoxContainer.new()
+	skip_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skip_row.add_theme_constant_override("separation", 8)
+	radio_box.add_child(skip_row)
+	radio_prev_button = _add_button(skip_row, "Previous", "Return to the previous SIGMA Radio track.", _on_radio_previous_track)
+	radio_prev_button.custom_minimum_size = Vector2(0, 52)
+	radio_next_button = _add_button(skip_row, "Next", "Skip to the next SIGMA Radio track.", _on_radio_next_track)
+	radio_next_button.custom_minimum_size = Vector2(0, 52)
+
+	radio_station_button = _add_button(radio_box, "Open Radio Station", "Open the full SIGMA Radio station screen.", _on_radio_station_pressed)
+	radio_station_button.custom_minimum_size = Vector2(0, 58)
 
 	var pool_label: Label = Label.new()
-	pool_label.text = "My Music Pool"
+	pool_label.text = "My SIGMA Radio Song Pool · Tap cards to include or remove songs"
 	pool_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pool_label.add_theme_font_size_override("font_size", 14)
+	pool_label.add_theme_font_size_override("font_size", 15)
 	pool_label.add_theme_color_override("font_color", Color("#E8EDF2"))
 	radio_box.add_child(pool_label)
 
 	var radio_grid: GridContainer = GridContainer.new()
 	radio_grid.columns = 2
 	radio_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	radio_grid.add_theme_constant_override("h_separation", 6)
-	radio_grid.add_theme_constant_override("v_separation", 6)
+	radio_grid.add_theme_constant_override("h_separation", 8)
+	radio_grid.add_theme_constant_override("v_separation", 8)
 	radio_box.add_child(radio_grid)
 	radio_track_buttons.clear()
 	for track in AudioManager.get_radio_tracks():
@@ -2062,9 +2186,12 @@ func _build_settings_panel(parent: Control) -> void:
 		if id.is_empty():
 			continue
 		var title_text: String = String(track.get("title", id))
-		var track_button: Button = _add_button(radio_grid, title_text, "Tap to include or remove this song.", Callable(self, "_on_radio_track_pressed").bind(id))
-		track_button.custom_minimum_size = Vector2(0, 42)
-		track_button.add_theme_font_size_override("font_size", 12)
+		var artist_text: String = String(track.get("artist", "SIGMA Radio"))
+		var track_button: Button = _add_button(radio_grid, title_text, "Tap to select/unselect this song.", Callable(self, "_on_radio_track_pressed").bind(id))
+		track_button.custom_minimum_size = Vector2(0, 62)
+		track_button.add_theme_font_size_override("font_size", 11)
+		track_button.set_meta("radio_title", title_text)
+		track_button.set_meta("radio_artist", artist_text)
 		radio_track_buttons[id] = track_button
 
 	var tools_card: PanelContainer = PanelContainer.new()
@@ -2084,14 +2211,10 @@ func _build_settings_panel(parent: Control) -> void:
 	tools_grid.add_theme_constant_override("v_separation", 8)
 	tools_margin.add_child(tools_grid)
 
-	lab_toggle_button = _add_button(tools_grid, "QA Tests", "Show QA Test Menu.", _toggle_scenario_lab)
-	lab_toggle_button.custom_minimum_size = Vector2(0, 46)
 	radio_reset_button = _add_button(tools_grid, "Reset Radio", "Reset SIGMA Radio.", _on_radio_reset)
 	radio_reset_button.custom_minimum_size = Vector2(0, 46)
 	var reset_audio_btn: Button = _add_button(tools_grid, "Reset Audio", "Restore audio.", _on_settings_reset_audio)
 	reset_audio_btn.custom_minimum_size = Vector2(0, 46)
-	var test_music_btn: Button = _add_button(tools_grid, "Test Music", "Play a music check.", _on_settings_test_music)
-	test_music_btn.custom_minimum_size = Vector2(0, 46)
 	var reset_tutorial_btn: Button = _add_button(tools_grid, "Reset Tutorial", "Clear tutorial progress.", _on_settings_reset_tutorial)
 	reset_tutorial_btn.custom_minimum_size = Vector2(0, 46)
 
@@ -2954,6 +3077,223 @@ func _update_tutorial_panel() -> void:
 	if tutorial_back_button != null:
 		tutorial_back_button.disabled = tutorial_index <= 0
 
+
+func _build_radio_station_panel(parent: Control) -> void:
+	radio_station_panel = PanelContainer.new()
+	radio_station_panel.name = "SigmaRadioStationPanel"
+	radio_station_panel.visible = false
+	radio_station_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	radio_station_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	radio_station_panel.add_theme_stylebox_override("panel", _make_rounded_style(Color("#02050C", 0.985), Color("#D4AF37", 0.72), 2, 0))
+	parent.add_child(radio_station_panel)
+
+	var safe_margin: MarginContainer = MarginContainer.new()
+	safe_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	safe_margin.add_theme_constant_override("margin_left", 14)
+	safe_margin.add_theme_constant_override("margin_right", 14)
+	safe_margin.add_theme_constant_override("margin_top", 14)
+	safe_margin.add_theme_constant_override("margin_bottom", 14)
+	radio_station_panel.add_child(safe_margin)
+
+	var page: VBoxContainer = VBoxContainer.new()
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_theme_constant_override("separation", 10)
+	safe_margin.add_child(page)
+
+	var top_row: HBoxContainer = HBoxContainer.new()
+	top_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	top_row.add_theme_constant_override("separation", 8)
+	page.add_child(top_row)
+
+	var title_box: VBoxContainer = VBoxContainer.new()
+	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(title_box)
+
+	var title: Label = Label.new()
+	title.text = "SIGMA Radio"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", Color("#F2C14E"))
+	title_box.add_child(title)
+
+	var sub: Label = Label.new()
+	sub.text = "Station screen · now playing · playlist pool"
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	sub.add_theme_font_size_override("font_size", 14)
+	sub.add_theme_color_override("font_color", Color("#B8C4D8"))
+	title_box.add_child(sub)
+
+	var close_button: Button = Button.new()
+	close_button.text = "X"
+	close_button.tooltip_text = "Back to Settings."
+	close_button.custom_minimum_size = Vector2(58, 54)
+	close_button.focus_mode = Control.FOCUS_NONE
+	close_button.add_theme_font_size_override("font_size", 20)
+	_style_button(close_button, "menu")
+	close_button.pressed.connect(func() -> void:
+		_play_sound_cue("button_tap")
+		_on_radio_station_close()
+	)
+	top_row.add_child(close_button)
+
+	var now_card: PanelContainer = PanelContainer.new()
+	now_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	now_card.add_theme_stylebox_override("panel", _make_rounded_style(Color("#071225", 0.96), Color("#F2C14E", 0.86), 2, 26))
+	page.add_child(now_card)
+
+	var now_margin: MarginContainer = MarginContainer.new()
+	now_margin.add_theme_constant_override("margin_left", 14)
+	now_margin.add_theme_constant_override("margin_right", 14)
+	now_margin.add_theme_constant_override("margin_top", 12)
+	now_margin.add_theme_constant_override("margin_bottom", 12)
+	now_card.add_child(now_margin)
+
+	var now_row: HBoxContainer = HBoxContainer.new()
+	now_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	now_row.add_theme_constant_override("separation", 12)
+	now_margin.add_child(now_row)
+
+	var crest_box: TextureRect = TextureRect.new()
+	crest_box.custom_minimum_size = _responsive_static_size(0.18, 0.14, Vector2(96, 96), Vector2(132, 132))
+	_configure_static_image(crest_box, "contain")
+	if ResourceLoader.exists("res://assets/ui/branding/sigma_crest.png"):
+		crest_box.texture = load("res://assets/ui/branding/sigma_crest.png")
+	now_row.add_child(crest_box)
+
+	var now_text_box: VBoxContainer = VBoxContainer.new()
+	now_text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	now_text_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	now_text_box.add_theme_constant_override("separation", 4)
+	now_row.add_child(now_text_box)
+
+	var now_caption: Label = Label.new()
+	now_caption.text = "NOW PLAYING"
+	now_caption.add_theme_font_size_override("font_size", 14)
+	now_caption.add_theme_color_override("font_color", Color("#00D1FF"))
+	now_text_box.add_child(now_caption)
+
+	radio_station_now_label = Label.new()
+	radio_station_now_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	radio_station_now_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	radio_station_now_label.add_theme_font_size_override("font_size", 23)
+	radio_station_now_label.add_theme_color_override("font_color", Color("#F2C14E"))
+	now_text_box.add_child(radio_station_now_label)
+
+	radio_station_artist_label = Label.new()
+	radio_station_artist_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	radio_station_artist_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	radio_station_artist_label.add_theme_font_size_override("font_size", 16)
+	radio_station_artist_label.add_theme_color_override("font_color", Color("#E8EDF2"))
+	now_text_box.add_child(radio_station_artist_label)
+
+	radio_station_status_label = Label.new()
+	radio_station_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	radio_station_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	radio_station_status_label.add_theme_font_size_override("font_size", 12)
+	radio_station_status_label.add_theme_color_override("font_color", Color("#B8C4D8"))
+	now_text_box.add_child(radio_station_status_label)
+
+	var transport_row: HBoxContainer = HBoxContainer.new()
+	transport_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	transport_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	transport_row.add_theme_constant_override("separation", 8)
+	page.add_child(transport_row)
+
+	radio_station_prev_button = _add_button(transport_row, "Previous", "Return to the previous SIGMA Radio song.", _on_radio_previous_track)
+	radio_station_prev_button.custom_minimum_size = Vector2(0, 56)
+	radio_station_mode_button = _add_button(transport_row, "Mode: Random", "Switch between Playlist and Random.", _on_radio_shuffle_toggle)
+	radio_station_mode_button.custom_minimum_size = Vector2(0, 56)
+	radio_station_next_button = _add_button(transport_row, "Next", "Skip to the next SIGMA Radio song.", _on_radio_next_track)
+	radio_station_next_button.custom_minimum_size = Vector2(0, 56)
+
+	var unlock_note: Label = Label.new()
+	unlock_note.text = "Song unlocks: reserved for a future update."
+	unlock_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	unlock_note.add_theme_font_size_override("font_size", 13)
+	unlock_note.add_theme_color_override("font_color", Color("#B8C4D8"))
+	page.add_child(unlock_note)
+
+	var pool_title: Label = Label.new()
+	pool_title.text = "Song Pool"
+	pool_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pool_title.add_theme_font_size_override("font_size", 20)
+	pool_title.add_theme_color_override("font_color", Color("#F2C14E"))
+	page.add_child(pool_title)
+
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(scroll)
+
+	var track_grid: GridContainer = GridContainer.new()
+	track_grid.columns = 1
+	track_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track_grid.add_theme_constant_override("h_separation", 8)
+	track_grid.add_theme_constant_override("v_separation", 8)
+	scroll.add_child(track_grid)
+
+	radio_station_track_buttons.clear()
+	for track in AudioManager.get_radio_tracks():
+		if typeof(track) != TYPE_DICTIONARY:
+			continue
+		var id: String = String((track as Dictionary).get("id", ""))
+		if id.is_empty():
+			continue
+		var title_text: String = String((track as Dictionary).get("title", id))
+		var artist_text: String = String((track as Dictionary).get("artist", "SIGMA Radio"))
+		var card_button: Button = _add_button(track_grid, title_text, "Select or remove this song from your SIGMA Radio pool.", Callable(self, "_on_radio_track_pressed").bind(id))
+		card_button.custom_minimum_size = Vector2(0, 72)
+		card_button.add_theme_font_size_override("font_size", 15)
+		card_button.set_meta("radio_title", title_text)
+		card_button.set_meta("radio_artist", artist_text)
+		radio_station_track_buttons[id] = card_button
+
+func _on_radio_station_pressed() -> void:
+	_hide_app_overlays()
+	_show_menu_page_backdrop("settings")
+	if radio_station_panel != null:
+		radio_station_panel.visible = true
+		radio_station_panel.move_to_front()
+	_update_audio_settings_ui()
+	_update_radio_settings_ui()
+	_play_sound_cue("page_open")
+	_sync_board_input_lock()
+
+func _on_radio_station_close() -> void:
+	if radio_station_panel != null:
+		radio_station_panel.visible = false
+	_show_menu_page_backdrop("settings")
+	if settings_panel != null:
+		settings_panel.visible = true
+	_update_audio_settings_ui()
+	_update_radio_settings_ui()
+	_play_sound_cue("page_back")
+	_sync_board_input_lock()
+
+func _radio_now_playing_display_text() -> String:
+	var icon_text: String = "▰▱▱" if AudioManager.radio_enabled and AudioManager.music_enabled and not AudioManager.muted else "▱▱▱"
+	return "%s  NOW PLAYING\n%s\n%s" % [icon_text, AudioManager.get_radio_now_playing_title(), AudioManager.get_radio_now_playing_artist()]
+
+func _update_radio_now_playing_animation(delta: float) -> void:
+	radio_animation_phase += delta
+	if radio_animation_phase > 1000.0:
+		radio_animation_phase = 0.0
+	var pulse: float = 0.5 + 0.5 * sin(radio_animation_phase * 4.0)
+	var active_color: Color = Color("#F2C14E").lerp(Color("#00D1FF"), pulse)
+	var inactive_color: Color = Color("#7A8796")
+	var target_color: Color = active_color if AudioManager.radio_enabled and AudioManager.music_enabled and not AudioManager.muted else inactive_color
+	if radio_now_playing_label != null:
+		radio_now_playing_label.text = _radio_now_playing_display_text()
+		radio_now_playing_label.add_theme_color_override("font_color", target_color)
+	if radio_station_now_label != null:
+		radio_station_now_label.text = AudioManager.get_radio_now_playing_title()
+		radio_station_now_label.add_theme_color_override("font_color", target_color)
+	if radio_station_artist_label != null:
+		radio_station_artist_label.text = AudioManager.get_radio_now_playing_artist()
+
+
 func _on_settings_pressed() -> void:
 	_play_menu_audio_scene("settings")
 	_play_sound_cue("page_open")
@@ -2971,19 +3311,27 @@ func _on_settings_restart() -> void:
 		_restart_current_match_now()
 
 func _on_settings_sound() -> void:
-	sound_enabled = not sound_enabled
-	AudioManager.set_muted(not sound_enabled)
+	sound_enabled = AudioManager.toggle_sfx_enabled()
 	selection_label.text = "Sound effects: %s." % ("ON" if sound_enabled else "OFF")
 	_update_audio_settings_ui()
-	_play_sound_cue("confirm")
+	if sound_enabled:
+		_play_sound_cue("confirm")
 
 func _on_settings_mute() -> void:
 	var is_muted: bool = AudioManager.toggle_muted()
-	sound_enabled = not is_muted
+	sound_enabled = AudioManager.sfx_enabled and not is_muted
 	selection_label.text = "Audio muted." if is_muted else "Audio unmuted."
 	_update_audio_settings_ui()
+	_update_radio_settings_ui()
 	if not is_muted:
 		_play_sound_cue("confirm")
+
+func _on_settings_music_toggle() -> void:
+	var enabled: bool = AudioManager.toggle_music_enabled()
+	selection_label.text = "Music ON." if enabled else "Music OFF. Default music and SIGMA Radio are paused."
+	_update_audio_settings_ui()
+	_update_radio_settings_ui()
+	_play_sound_cue("confirm")
 
 func _on_master_volume_changed(value: float) -> void:
 	AudioManager.set_master_volume(value)
@@ -3006,14 +3354,17 @@ func _on_settings_reset_audio() -> void:
 	_play_sound_cue("confirm")
 
 func _sync_audio_from_manager() -> void:
-	sound_enabled = not AudioManager.muted
+	sound_enabled = AudioManager.sfx_enabled and not AudioManager.muted
 	_update_audio_settings_ui()
 
 func _update_audio_settings_ui() -> void:
+	sound_enabled = AudioManager.sfx_enabled and not AudioManager.muted
 	if sound_button != null:
-		sound_button.text = "Sound: ON" if sound_enabled else "Sound: OFF"
+		sound_button.text = "SFX: ON" if AudioManager.sfx_enabled else "SFX: OFF"
 	if mute_button != null:
 		mute_button.text = "Mute: ON" if AudioManager.muted else "Mute: OFF"
+	if music_toggle_button != null:
+		music_toggle_button.text = "Music: ON" if AudioManager.music_enabled else "Music: OFF"
 	if master_volume_slider != null:
 		master_volume_slider.value = AudioManager.master_volume
 	if sfx_volume_slider != null:
@@ -3025,19 +3376,36 @@ func _update_audio_settings_ui() -> void:
 
 func _on_radio_toggle() -> void:
 	var enabled: bool = AudioManager.toggle_radio_enabled()
-	selection_label.text = "SIGMA Radio ON." if enabled else "SIGMA Radio OFF."
+	if enabled and not AudioManager.music_enabled:
+		selection_label.text = "SIGMA Radio ON, but Music is OFF. Turn Music ON to hear it."
+	else:
+		selection_label.text = "SIGMA Radio ON." if enabled else "SIGMA Radio OFF. Default music restored."
+	_update_audio_settings_ui()
 	_update_radio_settings_ui()
 	_play_sound_cue("confirm")
 
 func _on_radio_shuffle_toggle() -> void:
-	var enabled: bool = AudioManager.toggle_radio_shuffle()
-	selection_label.text = "Radio shuffle ON." if enabled else "Radio plays in order."
+	var random_mode: bool = AudioManager.toggle_radio_shuffle()
+	selection_label.text = "SIGMA Radio mode: Random." if random_mode else "SIGMA Radio mode: Playlist order."
+	_update_radio_settings_ui()
+	_play_sound_cue("confirm")
+
+func _on_radio_previous_track() -> void:
+	AudioManager.previous_radio_track()
+	if not AudioManager.music_enabled:
+		selection_label.text = "Music is OFF. Turn Music ON to hear SIGMA Radio."
+	else:
+		selection_label.text = "SIGMA Radio returned to the previous track."
+	_update_audio_settings_ui()
 	_update_radio_settings_ui()
 	_play_sound_cue("confirm")
 
 func _on_radio_next_track() -> void:
 	AudioManager.next_radio_track()
-	selection_label.text = "SIGMA Radio skipped to the next track."
+	if not AudioManager.music_enabled:
+		selection_label.text = "Music is OFF. Turn Music ON to hear SIGMA Radio."
+	else:
+		selection_label.text = "SIGMA Radio skipped to the next track."
 	_update_audio_settings_ui()
 	_update_radio_settings_ui()
 	_play_sound_cue("confirm")
@@ -3049,8 +3417,16 @@ func _on_radio_reset() -> void:
 	_update_radio_settings_ui()
 	_play_sound_cue("confirm")
 
+func _radio_air_status_dot(enabled: bool) -> String:
+	return "🟢" if enabled else "🔴"
+
 func _on_radio_track_pressed(id: String) -> void:
-	AudioManager.toggle_radio_track(id)
+	var before_enabled: bool = AudioManager.is_radio_track_enabled(id)
+	var after_enabled: bool = AudioManager.toggle_radio_track(id)
+	if before_enabled and after_enabled and AudioManager.get_radio_selected_track_count() <= 1:
+		selection_label.text = "Keep at least one SIGMA Radio song selected."
+	else:
+		selection_label.text = "Song selected." if after_enabled else "Song removed from radio pool."
 	_update_radio_settings_ui()
 	_play_sound_cue("confirm")
 
@@ -3058,18 +3434,52 @@ func _update_radio_settings_ui() -> void:
 	if radio_toggle_button != null:
 		radio_toggle_button.text = "SIGMA Radio: ON" if AudioManager.radio_enabled else "SIGMA Radio: OFF"
 	if radio_shuffle_button != null:
-		radio_shuffle_button.text = "Shuffle: ON" if AudioManager.radio_shuffle else "Shuffle: OFF"
+		radio_shuffle_button.text = "Play Mode: Random" if AudioManager.radio_shuffle else "Play Mode: Playlist"
+	var transport_disabled: bool = AudioManager.muted or not AudioManager.music_enabled
+	if radio_next_button != null:
+		radio_next_button.disabled = transport_disabled
+	if radio_prev_button != null:
+		radio_prev_button.disabled = transport_disabled
+	if radio_station_next_button != null:
+		radio_station_next_button.disabled = transport_disabled
+	if radio_station_prev_button != null:
+		radio_station_prev_button.disabled = transport_disabled
+	if radio_station_mode_button != null:
+		radio_station_mode_button.text = "Mode: Random" if AudioManager.radio_shuffle else "Mode: Playlist"
 	if radio_status_label != null:
 		radio_status_label.text = AudioManager.get_radio_status_text()
+	if radio_now_playing_label != null:
+		radio_now_playing_label.text = _radio_now_playing_display_text()
+	if radio_station_now_label != null:
+		radio_station_now_label.text = AudioManager.get_radio_now_playing_title()
+	if radio_station_artist_label != null:
+		radio_station_artist_label.text = AudioManager.get_radio_now_playing_artist()
+	if radio_station_status_label != null:
+		radio_station_status_label.text = AudioManager.get_radio_status_text()
 	for id in radio_track_buttons.keys():
 		var button: Button = radio_track_buttons[id]
 		if button == null:
 			continue
 		var enabled: bool = AudioManager.is_radio_track_enabled(String(id))
-		var clean_title: String = button.text
-		if clean_title.begins_with("ON · ") or clean_title.begins_with("OFF · "):
-			clean_title = clean_title.substr(5)
-		button.text = ("ON · " if enabled else "OFF · ") + clean_title
+		var clean_title: String = String(id)
+		if button.has_meta("radio_title"):
+			clean_title = String(button.get_meta("radio_title"))
+		var clean_artist: String = "SIGMA Radio"
+		if button.has_meta("radio_artist"):
+			clean_artist = String(button.get_meta("radio_artist"))
+		button.text = "%s %s · %s\n%s" % [_radio_air_status_dot(enabled), "ON AIR" if enabled else "OFF AIR", clean_title, clean_artist]
+	for station_id in radio_station_track_buttons.keys():
+		var station_button: Button = radio_station_track_buttons[station_id]
+		if station_button == null:
+			continue
+		var station_enabled: bool = AudioManager.is_radio_track_enabled(String(station_id))
+		var station_title: String = String(station_id)
+		var station_artist: String = "SIGMA Radio"
+		if station_button.has_meta("radio_title"):
+			station_title = String(station_button.get_meta("radio_title"))
+		if station_button.has_meta("radio_artist"):
+			station_artist = String(station_button.get_meta("radio_artist"))
+		station_button.text = "%s %s · %s\n%s" % [_radio_air_status_dot(station_enabled), "ON AIR" if station_enabled else "OFF AIR", station_title, station_artist]
 
 func _on_settings_test_music() -> void:
 	AudioManager.play_music_test_burst()
@@ -3191,9 +3601,7 @@ func _build_startup_splash() -> void:
 	startup_splash_art = TextureRect.new()
 	startup_splash_art.name = "SigmaStartupSplashArt"
 	startup_splash_art.texture = load("res://assets/ui/branding/sigma_startup_splash.png")
-	startup_splash_art.stretch_mode = TextureRect.STRETCH_SCALE
-	startup_splash_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	startup_splash_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_configure_static_image(startup_splash_art, "contain")
 	startup_splash_layer.add_child(startup_splash_art)
 	startup_splash_layer.resized.connect(_layout_startup_splash_art)
 	_layout_startup_splash_art()
@@ -3201,14 +3609,8 @@ func _build_startup_splash() -> void:
 func _layout_startup_splash_art() -> void:
 	if startup_splash_layer == null or startup_splash_art == null or startup_splash_art.texture == null:
 		return
-	var viewport_size: Vector2 = startup_splash_layer.size
-	var texture_size: Vector2 = startup_splash_art.texture.get_size()
-	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0 or texture_size.x <= 0.0 or texture_size.y <= 0.0:
-		return
-	var scale_value: float = min(viewport_size.x / texture_size.x, viewport_size.y / texture_size.y)
-	var draw_size: Vector2 = texture_size * scale_value
-	startup_splash_art.position = (viewport_size - draw_size) * 0.5
-	startup_splash_art.size = draw_size
+	# Startup art is a portrait poster. Keep aspect ratio, but let it fill the safe screen area.
+	_layout_static_image(startup_splash_art, startup_splash_layer.size, "contain", 0.96, 0.96)
 
 func _show_startup_intro() -> void:
 	if startup_splash_layer == null:
@@ -3278,6 +3680,8 @@ func _hide_app_overlays() -> void:
 		collections_panel.visible = false
 	if settings_panel != null:
 		settings_panel.visible = false
+	if radio_station_panel != null:
+		radio_station_panel.visible = false
 	if session_panel != null:
 		session_panel.visible = false
 	if pause_cover_rect != null:
@@ -3330,9 +3734,7 @@ func _build_main_menu_panel(parent: Control) -> void:
 	main_menu_art_rect = TextureRect.new()
 	main_menu_art_rect.name = "SigmaMainMenuArt"
 	main_menu_art_rect.texture = load("res://assets/ui/branding/sigma_main_menu_art.png")
-	main_menu_art_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	main_menu_art_rect.stretch_mode = TextureRect.STRETCH_SCALE
-	main_menu_art_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_configure_static_image(main_menu_art_rect, "cover")
 	main_menu_art_rect.modulate = Color(1, 1, 1, 0.36)
 	main_menu_panel.add_child(main_menu_art_rect)
 	main_menu_panel.resized.connect(_layout_main_menu_art)
@@ -3386,11 +3788,9 @@ func _build_main_menu_panel(parent: Control) -> void:
 	var brand_crest: TextureRect = TextureRect.new()
 	brand_crest.name = "SigmaBrandCrest"
 	brand_crest.texture = load("res://assets/ui/branding/sigma_crest.png")
-	brand_crest.custom_minimum_size = Vector2(118, 118)
+	brand_crest.custom_minimum_size = _responsive_static_size(0.22, 0.15, Vector2(104, 104), Vector2(150, 150))
 	brand_crest.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	brand_crest.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	brand_crest.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	brand_crest.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_configure_static_image(brand_crest, "contain")
 	box.add_child(brand_crest)
 
 	var jewel_title_row: HBoxContainer = HBoxContainer.new()
@@ -3410,9 +3810,7 @@ func _build_main_menu_panel(parent: Control) -> void:
 		var letter_image: TextureRect = TextureRect.new()
 		letter_image.texture = load(String(spec.get("path", "")))
 		letter_image.custom_minimum_size = spec.get("size", Vector2(64, 64))
-		letter_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		letter_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		letter_image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_configure_static_image(letter_image, "contain")
 		jewel_title_row.add_child(letter_image)
 
 	var tagline: Label = Label.new()
@@ -3462,18 +3860,10 @@ func _build_main_menu_panel(parent: Control) -> void:
 func _layout_main_menu_art() -> void:
 	if main_menu_panel == null or main_menu_art_rect == null or main_menu_art_rect.texture == null:
 		return
-	var viewport_size: Vector2 = main_menu_panel.size
-	var texture_size: Vector2 = main_menu_art_rect.texture.get_size()
-	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0 or texture_size.x <= 0.0 or texture_size.y <= 0.0:
-		return
-	var scale_value: float = min(viewport_size.x / texture_size.x, viewport_size.y / texture_size.y)
-	var draw_size: Vector2 = texture_size * scale_value
-	var draw_position: Vector2 = (viewport_size - draw_size) * 0.5
-	main_menu_art_rect.position = draw_position
-	main_menu_art_rect.size = draw_size
-	if main_menu_hotspot_layer != null:
-		main_menu_hotspot_layer.position = draw_position
-		main_menu_hotspot_layer.size = draw_size
+	var draw_rect: Rect2 = _layout_static_image(main_menu_art_rect, main_menu_panel.size, "cover")
+	if main_menu_hotspot_layer != null and draw_rect.size != Vector2.ZERO:
+		main_menu_hotspot_layer.position = draw_rect.position
+		main_menu_hotspot_layer.size = draw_rect.size
 
 func _add_main_menu_hotspot(parent: Control, title: String, art_rect: Rect2, callback: Callable, preview_id: String = "quick") -> Button:
 	var button: Button = Button.new()
@@ -4755,7 +5145,6 @@ func _rebuild_tournament_home_panel() -> void:
 		continue_tip = "No tournament saved yet."
 	var continue_btn: Button = _add_custom_hub_button(custom_content_box, "Continue Tournament", continue_tip, _on_custom_continue_tournament_pressed, "menu")
 	continue_btn.disabled = not _has_tournament_save() and not _has_active_tournament_match_save()
-	_add_button(custom_content_box, "Back", "Return to Main Menu.", _show_main_menu)
 
 func _rebuild_custom_games_hub_panel() -> void:
 	if custom_content_box == null:
@@ -5218,7 +5607,9 @@ func _rebuild_tournament_builder_panel() -> void:
 	_ensure_tournament_participants_count()
 	_add_top_right_close_button(custom_content_box, "Close Tournament Builder and return to Main Menu.", _show_main_menu)
 	var back_button: Button = _add_button(custom_content_box, "Back", "Return to Tournament.", _on_tournament_back_to_hub)
-	back_button.custom_minimum_size = Vector2(0, 58)
+	# Keep the compact arrow Back control visible inside the scrolling tournament builder.
+	# A zero-width minimum made it collapse into a tiny vertical sliver on mobile.
+	back_button.custom_minimum_size = Vector2(72, 58)
 
 	var title: Label = Label.new()
 	title.text = "Create Tournament"
@@ -7024,8 +7415,7 @@ func _add_collection_image_showcase(parent: Container, path: String, min_size: V
 	var rect: TextureRect = TextureRect.new()
 	rect.custom_minimum_size = min_size
 	rect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rect.expand_mode = 1
-	rect.stretch_mode = 5
+	_configure_static_image(rect, "contain")
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if ResourceLoader.exists(path):
 		rect.texture = load(path) as Texture2D
@@ -7543,8 +7933,7 @@ func _make_collection_piece_texture_rect(kind: String, owner: int, min_size: Vec
 	texture_rect.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	texture_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	texture_rect.expand_mode = 1
-	texture_rect.stretch_mode = 5
+	_configure_static_image(texture_rect, "contain")
 	texture_rect.texture = _classic_piece_texture(kind, owner)
 	return texture_rect
 
@@ -7554,8 +7943,7 @@ func _make_collection_vector_piece_texture_rect(kind: String, owner: int, min_si
 	texture_rect.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	texture_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	texture_rect.expand_mode = 1
-	texture_rect.stretch_mode = 5
+	_configure_static_image(texture_rect, "contain")
 	texture_rect.texture = _vector_piece_texture(kind, owner)
 	return texture_rect
 
@@ -7565,8 +7953,7 @@ func _make_collection_draconian_piece_texture_rect(kind: String, owner: int, min
 	texture_rect.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	texture_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	texture_rect.expand_mode = 1
-	texture_rect.stretch_mode = 5
+	_configure_static_image(texture_rect, "contain")
 	texture_rect.texture = _draconian_piece_texture(kind, owner)
 	return texture_rect
 
@@ -7576,8 +7963,7 @@ func _make_collection_lions_den_piece_texture_rect(kind: String, owner: int, min
 	texture_rect.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	texture_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	texture_rect.expand_mode = 1
-	texture_rect.stretch_mode = 5
+	_configure_static_image(texture_rect, "contain")
 	texture_rect.texture = _lions_den_piece_texture(kind, owner)
 	return texture_rect
 
@@ -8048,10 +8434,9 @@ func _build_rules_guide_panel(parent: Control) -> void:
 
 	rules_guide_visual_texture = TextureRect.new()
 	rules_guide_visual_texture.name = "RulesGuideVisualTexture"
-	rules_guide_visual_texture.custom_minimum_size = Vector2(0, 150)
+	rules_guide_visual_texture.custom_minimum_size = Vector2(0, _responsive_static_height(0.14, 130.0, 190.0))
 	rules_guide_visual_texture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rules_guide_visual_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	rules_guide_visual_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_configure_static_image(rules_guide_visual_texture, "contain")
 	rules_guide_visual_texture.visible = false
 	content_box.add_child(rules_guide_visual_texture)
 
@@ -8566,10 +8951,9 @@ func _animate_tutorial_demo() -> void:
 		if welcome_texture != null:
 			var welcome_visual: TextureRect = TextureRect.new()
 			welcome_visual.name = "TutorialWelcomeVisual"
-			welcome_visual.custom_minimum_size = Vector2(0, 230)
+			welcome_visual.custom_minimum_size = Vector2(0, _responsive_static_height(0.20, 190.0, 270.0))
 			welcome_visual.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			welcome_visual.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			welcome_visual.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			_configure_static_image(welcome_visual, "contain")
 			welcome_visual.texture = welcome_texture
 			box.add_child(welcome_visual)
 		else:
@@ -8596,10 +8980,9 @@ func _animate_tutorial_demo() -> void:
 		if visual_texture != null:
 			var visual: TextureRect = TextureRect.new()
 			visual.name = "TutorialLargeVisual"
-			visual.custom_minimum_size = Vector2(0, 175)
+			visual.custom_minimum_size = Vector2(0, _responsive_static_height(0.16, 150.0, 230.0))
 			visual.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			visual.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			visual.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			_configure_static_image(visual, "contain")
 			visual.texture = visual_texture
 			box.add_child(visual)
 		else:
@@ -8638,8 +9021,7 @@ func _animate_tutorial_demo() -> void:
 				continue
 			var arrow: TextureRect = TextureRect.new()
 			arrow.custom_minimum_size = Vector2(56, 56)
-			arrow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			arrow.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			_configure_static_image(arrow, "contain")
 			arrow.texture = arrow_tex
 			arrow_row.add_child(arrow)
 

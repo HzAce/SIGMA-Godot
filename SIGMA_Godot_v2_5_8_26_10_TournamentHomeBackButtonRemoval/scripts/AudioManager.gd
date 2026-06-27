@@ -1,8 +1,9 @@
 extends Node
 
 # SIGMA audio routing cleanup + SIGMA Radio foundation.
-# One global music player owns all background music. Scenes and game states call
-# AudioManager wrappers; they never create unmanaged background music players.
+# One global music player owns all background music.
+# Default score and SIGMA Radio are mutually exclusive: Radio overrides the default score.
+# Music ON/OFF is the master music gate for both default music and Radio.
 # SFX stays separate through a small pooled set of AudioStreamPlayers.
 
 const MUSIC_MAIN_MENU := "res://audio/music/sigma_main_menu_theme.ogg"
@@ -15,10 +16,12 @@ const RADIO_MANIFEST_PATH := "res://assets/audio/radio/sigma_radio_manifest.json
 
 var muted: bool = false
 var master_volume: float = 0.95
+var sfx_enabled: bool = true
+var music_enabled: bool = true
 var sfx_volume: float = 0.85
 var music_volume: float = 0.92
 var radio_enabled: bool = false
-var radio_shuffle: bool = true
+var radio_shuffle: bool = true # true = Random, false = Playlist order
 var radio_avoid_repeats: bool = true
 
 var _sfx_players: Array[AudioStreamPlayer] = []
@@ -43,6 +46,8 @@ var _music_paused: bool = false
 var _radio_tracks: Array = []
 var _radio_enabled_tracks: Dictionary = {}
 var _radio_last_track_id: String = ""
+var _radio_previous_track_id: String = ""
+var _radio_playlist_cursor: int = -1
 var _radio_now_playing_title: String = "Default SIGMA Score"
 var _radio_now_playing_artist: String = "SIGMA"
 
@@ -64,7 +69,7 @@ func _ready() -> void:
 	set_process(true)
 
 func _process(_delta: float) -> void:
-	if not _initialized or muted:
+	if not _initialized or muted or not music_enabled:
 		return
 	if _music_player != null and _music_player.stream != null and not _music_paused and not _music_player.playing and not _current_music_resolved_path.is_empty():
 		_music_player.play(0.0)
@@ -147,7 +152,8 @@ func _load_sfx_stream_map() -> void:
 # Required public music API.
 func play_music(path: String, volume_db: float = -8.0, fade_time: float = 0.35) -> void:
 	_ensure_initialized()
-	if muted:
+	if muted or not music_enabled:
+		stop_music(0.0)
 		return
 	var resolved_path: String = _resolve_music_path(path)
 	if resolved_path.is_empty():
@@ -350,9 +356,15 @@ func _normalize_menu_context(page_context: String) -> String:
 
 func _play_context_music(context: String, fallback_path: String, volume_db: float = -8.0, fade_time: float = 0.35, force_next: bool = false) -> void:
 	_ensure_initialized()
+	if muted or not music_enabled:
+		stop_music(0.0)
+		return
 	var radio_track: Dictionary = _choose_radio_track(context, force_next)
 	if radio_enabled and not radio_track.is_empty():
-		_radio_last_track_id = String(radio_track.get("id", ""))
+		var chosen_id: String = String(radio_track.get("id", ""))
+		if not chosen_id.is_empty() and chosen_id != _radio_last_track_id and not _radio_last_track_id.is_empty():
+			_radio_previous_track_id = _radio_last_track_id
+		_radio_last_track_id = chosen_id
 		_radio_now_playing_title = String(radio_track.get("title", "SIGMA Radio"))
 		_radio_now_playing_artist = String(radio_track.get("artist", "SIGMA"))
 		play_music(String(radio_track.get("path", fallback_path)), volume_db, fade_time)
@@ -404,16 +416,29 @@ func _choose_radio_track(context: String, force_next: bool = false) -> Dictionar
 		available.append(track)
 	if available.is_empty():
 		return {}
-	if radio_avoid_repeats and available.size() > 1:
-		var filtered: Array = []
-		for track in available:
-			if String(track.get("id", "")) != _radio_last_track_id:
-				filtered.append(track)
-		if not filtered.is_empty():
-			available = filtered
-	if radio_shuffle or force_next:
+	if radio_shuffle:
+		if radio_avoid_repeats and available.size() > 1:
+			var filtered: Array = []
+			for track in available:
+				if String(track.get("id", "")) != _radio_last_track_id:
+					filtered.append(track)
+			if not filtered.is_empty():
+				available = filtered
 		return available[randi() % available.size()]
-	return available[0]
+	# Playlist mode: selected songs play in manifest/order. Force-next advances one step.
+	if force_next or _radio_playlist_cursor < 0:
+		_radio_playlist_cursor = (_radio_playlist_cursor + 1) % available.size()
+	else:
+		var current_index: int = -1
+		for i in range(available.size()):
+			if String((available[i] as Dictionary).get("id", "")) == _radio_last_track_id:
+				current_index = i
+				break
+		if current_index >= 0:
+			_radio_playlist_cursor = current_index
+		else:
+			_radio_playlist_cursor = clamp(_radio_playlist_cursor, 0, max(available.size() - 1, 0))
+	return available[_radio_playlist_cursor % available.size()]
 
 func _track_allows_context(track: Dictionary, context: String) -> bool:
 	var contexts: Array = track.get("allowed_contexts", [])
@@ -439,6 +464,12 @@ func _load_radio_manifest() -> void:
 			var parsed = JSON.parse_string(file.get_as_text())
 			if typeof(parsed) == TYPE_ARRAY:
 				loaded = parsed
+			elif typeof(parsed) == TYPE_DICTIONARY:
+				var parsed_dict: Dictionary = parsed as Dictionary
+				if typeof(parsed_dict.get("tracks", [])) == TYPE_ARRAY:
+					loaded = parsed_dict.get("tracks", [])
+				elif typeof(parsed_dict.get("songs", [])) == TYPE_ARRAY:
+					loaded = parsed_dict.get("songs", [])
 	if loaded.is_empty():
 		loaded = _default_radio_tracks()
 	_radio_tracks = loaded
@@ -465,21 +496,39 @@ func is_radio_track_enabled(id: String) -> bool:
 	_ensure_initialized()
 	return bool(_radio_enabled_tracks.get(id, true))
 
-func set_radio_track_enabled(id: String, enabled: bool) -> void:
+func get_radio_selected_track_count() -> int:
+	_ensure_initialized()
+	var count: int = 0
+	for track in _radio_tracks:
+		if typeof(track) != TYPE_DICTIONARY:
+			continue
+		var id: String = String((track as Dictionary).get("id", ""))
+		if not id.is_empty() and is_radio_track_enabled(id):
+			count += 1
+	return count
+
+func set_radio_track_enabled(id: String, enabled: bool) -> bool:
 	_ensure_initialized()
 	if id.is_empty():
-		return
+		return false
+	if not enabled and is_radio_track_enabled(id) and get_radio_selected_track_count() <= 1:
+		return false
 	_radio_enabled_tracks[id] = enabled
+	if not enabled and _radio_last_track_id == id:
+		_radio_last_track_id = ""
+		_radio_playlist_cursor = -1
 	_save_settings()
+	return true
 
 func toggle_radio_track(id: String) -> bool:
 	var next_value: bool = not is_radio_track_enabled(id)
-	set_radio_track_enabled(id, next_value)
-	return next_value
+	var changed: bool = set_radio_track_enabled(id, next_value)
+	return is_radio_track_enabled(id) if changed else is_radio_track_enabled(id)
 
 func set_radio_enabled(enabled: bool) -> void:
 	_ensure_initialized()
 	radio_enabled = enabled
+	_radio_playlist_cursor = -1
 	_save_settings()
 	force_replay_music_layers()
 
@@ -487,10 +536,16 @@ func toggle_radio_enabled() -> bool:
 	set_radio_enabled(not radio_enabled)
 	return radio_enabled
 
+func set_radio_shuffle(enabled: bool) -> void:
+	_ensure_initialized()
+	radio_shuffle = enabled
+	_radio_playlist_cursor = -1
+	_save_settings()
+	force_replay_music_layers()
+
 func toggle_radio_shuffle() -> bool:
 	_ensure_initialized()
-	radio_shuffle = not radio_shuffle
-	_save_settings()
+	set_radio_shuffle(not radio_shuffle)
 	return radio_shuffle
 
 func next_radio_track() -> void:
@@ -498,6 +553,8 @@ func next_radio_track() -> void:
 	if not radio_enabled:
 		radio_enabled = true
 		_save_settings()
+	if not music_enabled or muted:
+		return
 	_play_context_music(_radio_context_for_active_state(), _last_game_music_request if _active_family == "board" else MUSIC_MAIN_MENU, -8.0, 0.20, true)
 
 func reset_radio_settings() -> void:
@@ -505,6 +562,9 @@ func reset_radio_settings() -> void:
 	radio_enabled = false
 	radio_shuffle = true
 	radio_avoid_repeats = true
+	_radio_playlist_cursor = -1
+	_radio_last_track_id = ""
+	_radio_previous_track_id = ""
 	_radio_enabled_tracks.clear()
 	for track in _radio_tracks:
 		if typeof(track) == TYPE_DICTIONARY:
@@ -514,11 +574,72 @@ func reset_radio_settings() -> void:
 	_save_settings()
 	force_replay_music_layers()
 
+
+func _track_by_id(id: String) -> Dictionary:
+	if id.is_empty():
+		return {}
+	_load_radio_manifest()
+	for track in _radio_tracks:
+		if typeof(track) == TYPE_DICTIONARY and String((track as Dictionary).get("id", "")) == id:
+			return (track as Dictionary)
+	return {}
+
+func _play_specific_radio_track(track: Dictionary, fallback_path: String, volume_db: float = -8.0, fade_time: float = 0.20) -> void:
+	if track.is_empty() or muted or not music_enabled:
+		return
+	var path: String = String(track.get("path", fallback_path))
+	if _resolve_music_path(path).is_empty():
+		return
+	var chosen_id: String = String(track.get("id", ""))
+	if not chosen_id.is_empty() and chosen_id != _radio_last_track_id and not _radio_last_track_id.is_empty():
+		_radio_previous_track_id = _radio_last_track_id
+	_radio_last_track_id = chosen_id
+	_radio_now_playing_title = String(track.get("title", "SIGMA Radio"))
+	_radio_now_playing_artist = String(track.get("artist", "SIGMA"))
+	play_music(path, volume_db, fade_time)
+
+func previous_radio_track() -> void:
+	_ensure_initialized()
+	if not radio_enabled:
+		radio_enabled = true
+		_save_settings()
+	if not music_enabled or muted:
+		return
+	var fallback_path: String = _last_game_music_request if _active_family == "board" else MUSIC_MAIN_MENU
+	var previous_track: Dictionary = _track_by_id(_radio_previous_track_id)
+	if not previous_track.is_empty():
+		var current_id: String = _radio_last_track_id
+		_play_specific_radio_track(previous_track, fallback_path, -8.0, 0.20)
+		_radio_previous_track_id = current_id
+		return
+	# If there is no history yet, Playlist mode steps backward through the selected order.
+	if not radio_shuffle:
+		_radio_playlist_cursor = max(_radio_playlist_cursor - 2, -1)
+	_play_context_music(_radio_context_for_active_state(), fallback_path, -8.0, 0.20, true)
+
+func get_radio_now_playing_title() -> String:
+	_ensure_initialized()
+	return _radio_now_playing_title
+
+func get_radio_now_playing_artist() -> String:
+	_ensure_initialized()
+	return _radio_now_playing_artist
+
+func get_radio_now_playing_id() -> String:
+	_ensure_initialized()
+	return _radio_last_track_id
+
+func get_radio_play_mode_text() -> String:
+	return "Random" if radio_shuffle else "Playlist"
+
+
 func get_radio_status_text() -> String:
 	_ensure_initialized()
 	var mode: String = "ON" if radio_enabled else "OFF"
-	var shuffle_text: String = "Shuffle" if radio_shuffle else "In order"
-	return "SIGMA Radio: %s · %s · Now Playing: %s" % [mode, shuffle_text, _radio_now_playing_title]
+	var play_mode: String = "Random" if radio_shuffle else "Playlist"
+	var music_gate: String = "Music ON" if music_enabled else "Music OFF"
+	var selected_text: String = "%d selected" % get_radio_selected_track_count()
+	return "SIGMA Radio: %s · %s · %s · %s · Now Playing: %s" % [mode, play_mode, selected_text, music_gate, _radio_now_playing_title]
 
 # SFX API.
 func play_ui(name: String) -> void:
@@ -563,7 +684,7 @@ func play_action_finish(action_name: String) -> void:
 
 func _play_sfx(name: String, scale: float = 1.0) -> void:
 	_ensure_initialized()
-	if muted:
+	if muted or not sfx_enabled:
 		return
 	if not _sfx_streams.has(name):
 		push_warning("SIGMA SFX cue missing from map: %s" % name)
@@ -601,6 +722,28 @@ func _load_sfx_stream(path: String) -> AudioStream:
 	return stream
 
 # Settings / status.
+func set_sfx_enabled(value: bool) -> void:
+	_ensure_initialized()
+	sfx_enabled = value
+	_save_settings()
+
+func toggle_sfx_enabled() -> bool:
+	set_sfx_enabled(not sfx_enabled)
+	return sfx_enabled
+
+func set_music_enabled(value: bool) -> void:
+	_ensure_initialized()
+	music_enabled = value
+	if not music_enabled:
+		stop_music(0.15)
+	else:
+		force_replay_music_layers()
+	_save_settings()
+
+func toggle_music_enabled() -> bool:
+	set_music_enabled(not music_enabled)
+	return music_enabled
+
 func set_muted(value: bool) -> void:
 	_ensure_initialized()
 	muted = value
@@ -609,8 +752,11 @@ func set_muted(value: bool) -> void:
 			_music_player.volume_db = -80.0
 	else:
 		_apply_music_volume_db(_current_music_volume_db)
-		if _current_music_request.is_empty():
-			play_menu_music(_active_menu_context)
+		if music_enabled:
+			if _current_music_request.is_empty():
+				play_menu_music(_active_menu_context)
+			else:
+				force_replay_music_layers()
 	_save_settings()
 
 func toggle_muted() -> bool:
@@ -637,6 +783,8 @@ func set_music_volume(value: float) -> void:
 func reset_audio_settings() -> void:
 	_ensure_initialized()
 	muted = false
+	sfx_enabled = true
+	music_enabled = true
 	master_volume = 0.95
 	sfx_volume = 0.85
 	music_volume = 0.92
@@ -647,18 +795,20 @@ func reset_audio_settings() -> void:
 
 func play_music_test_burst() -> void:
 	_ensure_initialized()
-	if muted:
+	if muted or not music_enabled:
 		return
 	play_menu_music(_active_menu_context)
 	play_cue("confirm")
 
 func get_status_text() -> String:
-	var mute_text: String = "Muted" if muted else "Sound On"
+	var mute_text: String = "Muted" if muted else "Audio On"
+	var sfx_text: String = "SFX ON" if sfx_enabled else "SFX OFF"
+	var music_text: String = "Music ON" if music_enabled else "Music OFF"
 	var family_text: String = _active_family if not _active_family.is_empty() else "—"
 	var music_name: String = _current_music_request.get_file() if not _current_music_request.is_empty() else "—"
 	if _music_paused:
 		family_text += " paused"
-	return "%s · Master %d%% · SFX %d%% · Music %d%% · %s · %s" % [mute_text, int(round(master_volume * 100.0)), int(round(sfx_volume * 100.0)), int(round(music_volume * 100.0)), family_text, _radio_now_playing_title if radio_enabled else music_name]
+	return "%s · %s · %s · Master %d%% · SFX %d%% · Music %d%% · %s · %s" % [mute_text, sfx_text, music_text, int(round(master_volume * 100.0)), int(round(sfx_volume * 100.0)), int(round(music_volume * 100.0)), family_text, _radio_now_playing_title if radio_enabled else music_name]
 
 func _load_settings() -> void:
 	var config: ConfigFile = ConfigFile.new()
@@ -666,6 +816,8 @@ func _load_settings() -> void:
 	if error != OK:
 		return
 	muted = bool(config.get_value("audio", "muted", muted))
+	sfx_enabled = bool(config.get_value("audio", "sfx_enabled", sfx_enabled))
+	music_enabled = bool(config.get_value("audio", "music_enabled", music_enabled))
 	master_volume = float(config.get_value("audio", "master_volume", master_volume))
 	sfx_volume = float(config.get_value("audio", "sfx_volume", sfx_volume))
 	music_volume = float(config.get_value("audio", "music_volume", music_volume))
@@ -679,6 +831,8 @@ func _load_settings() -> void:
 func _save_settings() -> void:
 	var config: ConfigFile = ConfigFile.new()
 	config.set_value("audio", "muted", muted)
+	config.set_value("audio", "sfx_enabled", sfx_enabled)
+	config.set_value("audio", "music_enabled", music_enabled)
 	config.set_value("audio", "master_volume", master_volume)
 	config.set_value("audio", "sfx_volume", sfx_volume)
 	config.set_value("audio", "music_volume", music_volume)

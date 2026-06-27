@@ -1407,6 +1407,73 @@ func _draw_settings_menu_animation(pulse: float) -> void:
 		var p: Vector2 = center + Vector2(cos(angle), sin(angle)) * cell_size * 1.85
 		draw_circle(p, cell_size * 0.045, _with_alpha(color_gold, 0.55 + pulse * 0.25))
 
+
+func _clip_polygon_edge(points: Array, edge: String, value: float) -> Array:
+	var output: Array = []
+	if points.is_empty():
+		return output
+	var previous: Vector2 = points[points.size() - 1]
+	var previous_inside: bool = _point_inside_clip_edge(previous, edge, value)
+	for current_value in points:
+		var current: Vector2 = current_value
+		var current_inside: bool = _point_inside_clip_edge(current, edge, value)
+		if current_inside:
+			if not previous_inside:
+				output.append(_clip_edge_intersection(previous, current, edge, value))
+			output.append(current)
+		elif previous_inside:
+			output.append(_clip_edge_intersection(previous, current, edge, value))
+		previous = current
+		previous_inside = current_inside
+	return output
+
+func _point_inside_clip_edge(point: Vector2, edge: String, value: float) -> bool:
+	match edge:
+		"left":
+			return point.x >= value
+		"right":
+			return point.x <= value
+		"top":
+			return point.y >= value
+		"bottom":
+			return point.y <= value
+	return true
+
+func _clip_edge_intersection(a: Vector2, b: Vector2, edge: String, value: float) -> Vector2:
+	var delta: Vector2 = b - a
+	if edge == "left" or edge == "right":
+		if abs(delta.x) <= 0.0001:
+			return Vector2(value, a.y)
+		var t_x: float = clamp((value - a.x) / delta.x, 0.0, 1.0)
+		return a + delta * t_x
+	if abs(delta.y) <= 0.0001:
+		return Vector2(a.x, value)
+	var t_y: float = clamp((value - a.y) / delta.y, 0.0, 1.0)
+	return a + delta * t_y
+
+func _clip_polygon_to_rect(points: PackedVector2Array, clip_rect: Rect2) -> PackedVector2Array:
+	var clipped: Array = []
+	for p in points:
+		clipped.append(p)
+	var left: float = clip_rect.position.x
+	var right: float = clip_rect.position.x + clip_rect.size.x
+	var top: float = clip_rect.position.y
+	var bottom: float = clip_rect.position.y + clip_rect.size.y
+	clipped = _clip_polygon_edge(clipped, "left", left)
+	clipped = _clip_polygon_edge(clipped, "right", right)
+	clipped = _clip_polygon_edge(clipped, "top", top)
+	clipped = _clip_polygon_edge(clipped, "bottom", bottom)
+	var result: PackedVector2Array = PackedVector2Array()
+	for p2 in clipped:
+		result.append(p2)
+	return result
+
+func _draw_colored_polygon_clipped(points: PackedVector2Array, clip_rect: Rect2, color: Color) -> void:
+	var clipped: PackedVector2Array = _clip_polygon_to_rect(points, clip_rect)
+	if clipped.size() >= 3:
+		draw_colored_polygon(clipped, color)
+
+
 func _draw_collections_menu_animation(pulse: float, tick: float) -> void:
 	# Collections is a premium vault/showcase, not a control table.
 	# Keep it visually distinct from Settings: no slider bars, no calibration cards.
@@ -1466,7 +1533,8 @@ func _draw_collections_menu_animation(pulse: float, tick: float) -> void:
 		Vector2(sweep_x + cell_size * 1.12, board_rect.position.y + board_rect.size.y),
 		Vector2(sweep_x + cell_size * 0.70, board_rect.position.y + board_rect.size.y),
 	])
-	draw_colored_polygon(sweep_poly, Color("#F2C14E", 0.060))
+	# Clip the showcase sweep to the playable board rect so it never spills over the preview frame.
+	_draw_colored_polygon_clipped(sweep_poly, board_rect, Color("#F2C14E", 0.060))
 
 	# Small unlock/storefront sparkles.
 	for j in range(10):
