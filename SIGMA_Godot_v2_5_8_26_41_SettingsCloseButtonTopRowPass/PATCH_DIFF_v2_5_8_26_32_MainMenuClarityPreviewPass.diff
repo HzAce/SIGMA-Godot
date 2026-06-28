@@ -1,0 +1,293 @@
+--- /mnt/data/work_v31/SIGMA_Godot_v2_5_8_26_31_RuntimeCleanupPass/scripts/Main.gd	2026-06-28 10:52:00.000000000 +0000
++++ /mnt/data/SIGMA_Godot_v2_5_8_26_32_MainMenuClarityPreviewPass/scripts/Main.gd	2026-06-28 12:21:56.290119528 +0000
+@@ -3846,34 +3846,85 @@
+ 	box.custom_minimum_size = Vector2(390, 0)
+ 	box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+ 	box.alignment = BoxContainer.ALIGNMENT_CENTER
+-	box.add_theme_constant_override("separation", 14)
++	box.add_theme_constant_override("separation", 10)
+ 	center.add_child(box)
+ 
++	# v2.5.8.26.32: the hero zone gets a premium glass stage so the colorful
++	# SIGMA letters read clearly against the vibrant celestial background without
++	# flattening or replacing the current art.
++	var hero_shell: PanelContainer = PanelContainer.new()
++	hero_shell.name = "MainMenuHeroGlass"
++	hero_shell.custom_minimum_size = _responsive_static_size(0.84, 0.24, Vector2(350, 188), Vector2(430, 230))
++	hero_shell.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
++	hero_shell.add_theme_stylebox_override("panel", _make_rounded_style(Color("#020714", 0.38), Color("#D4AF37", 0.38), 1, 34))
++	box.add_child(hero_shell)
++
++	var hero_margin: MarginContainer = MarginContainer.new()
++	hero_margin.add_theme_constant_override("margin_left", 14)
++	hero_margin.add_theme_constant_override("margin_right", 14)
++	hero_margin.add_theme_constant_override("margin_top", 8)
++	hero_margin.add_theme_constant_override("margin_bottom", 10)
++	hero_shell.add_child(hero_margin)
++
++	var hero_box: VBoxContainer = VBoxContainer.new()
++	hero_box.alignment = BoxContainer.ALIGNMENT_CENTER
++	hero_box.add_theme_constant_override("separation", 7)
++	hero_margin.add_child(hero_box)
++
+ 	var brand_crest: TextureRect = TextureRect.new()
+ 	brand_crest.name = "SigmaBrandCrest"
+ 	brand_crest.texture = load("res://assets/ui/branding/sigma_crest.png")
+-	brand_crest.custom_minimum_size = _responsive_static_size(0.22, 0.15, Vector2(104, 104), Vector2(150, 150))
++	brand_crest.custom_minimum_size = _responsive_static_size(0.20, 0.115, Vector2(92, 92), Vector2(126, 126))
+ 	brand_crest.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+ 	_configure_static_image(brand_crest, "contain")
+-	box.add_child(brand_crest)
++	hero_box.add_child(brand_crest)
++
++	var wordmark_stage: Control = Control.new()
++	wordmark_stage.name = "SigmaWordmarkReadabilityStage"
++	wordmark_stage.custom_minimum_size = Vector2(348, 91)
++	wordmark_stage.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
++	hero_box.add_child(wordmark_stage)
++
++	var wordmark_halo: TextureRect = TextureRect.new()
++	wordmark_halo.name = "SigmaWordmarkGlassHalo"
++	wordmark_halo.texture = load("res://assets/ui/main_menu/sigma_logo_glass_halo.png")
++	wordmark_halo.set_anchors_preset(Control.PRESET_FULL_RECT)
++	wordmark_halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
++	wordmark_halo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
++	wordmark_halo.stretch_mode = TextureRect.STRETCH_SCALE
++	wordmark_stage.add_child(wordmark_halo)
++
++	var wordmark_margin: MarginContainer = MarginContainer.new()
++	wordmark_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
++	wordmark_margin.add_theme_constant_override("margin_left", 16)
++	wordmark_margin.add_theme_constant_override("margin_right", 16)
++	wordmark_margin.add_theme_constant_override("margin_top", 6)
++	wordmark_margin.add_theme_constant_override("margin_bottom", 7)
++	wordmark_stage.add_child(wordmark_margin)
++
++	var wordmark_box: VBoxContainer = VBoxContainer.new()
++	wordmark_box.alignment = BoxContainer.ALIGNMENT_CENTER
++	wordmark_box.add_theme_constant_override("separation", 0)
++	wordmark_margin.add_child(wordmark_box)
+ 
+ 	var jewel_title_row: HBoxContainer = HBoxContainer.new()
+ 	jewel_title_row.alignment = BoxContainer.ALIGNMENT_CENTER
+ 	jewel_title_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+-	jewel_title_row.add_theme_constant_override("separation", 3)
+-	box.add_child(jewel_title_row)
++	jewel_title_row.add_theme_constant_override("separation", 4)
++	wordmark_box.add_child(jewel_title_row)
+ 
+ 	var jewel_letter_specs: Array = [
+-		{"path": "res://assets/ui/branding/wordmark_letters/sigma_s.png", "size": Vector2(49, 62)},
+-		{"path": "res://assets/ui/branding/wordmark_letters/sigma_i.png", "size": Vector2(40, 62)},
+-		{"path": "res://assets/ui/branding/wordmark_letters/sigma_g.png", "size": Vector2(62, 62)},
+-		{"path": "res://assets/ui/branding/wordmark_letters/sigma_m.png", "size": Vector2(76, 62)},
+-		{"path": "res://assets/ui/branding/wordmark_letters/sigma_a.png", "size": Vector2(56, 62)}
++		{"path": "res://assets/ui/branding/wordmark_letters/sigma_s.png", "size": Vector2(52, 64)},
++		{"path": "res://assets/ui/branding/wordmark_letters/sigma_i.png", "size": Vector2(42, 64)},
++		{"path": "res://assets/ui/branding/wordmark_letters/sigma_g.png", "size": Vector2(65, 64)},
++		{"path": "res://assets/ui/branding/wordmark_letters/sigma_m.png", "size": Vector2(79, 64)},
++		{"path": "res://assets/ui/branding/wordmark_letters/sigma_a.png", "size": Vector2(59, 64)}
+ 	]
+ 	for spec in jewel_letter_specs:
+ 		var letter_image: TextureRect = TextureRect.new()
+ 		letter_image.texture = load(String(spec.get("path", "")))
+ 		letter_image.custom_minimum_size = spec.get("size", Vector2(64, 64))
++		letter_image.modulate = Color(1.08, 1.08, 1.08, 1.0)
+ 		_configure_static_image(letter_image, "contain")
+ 		jewel_title_row.add_child(letter_image)
+ 
+@@ -3881,31 +3932,65 @@
+ 	tagline.text = "The sum of every move."
+ 	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+ 	tagline.add_theme_font_size_override("font_size", 18)
+-	tagline.add_theme_color_override("font_color", Color("#E8EDF2"))
+-	box.add_child(tagline)
+-
++	tagline.add_theme_color_override("font_color", Color("#F7F3E8"))
++	tagline.add_theme_color_override("font_shadow_color", Color("#000000", 0.80))
++	tagline.add_theme_constant_override("shadow_offset_x", 1)
++	tagline.add_theme_constant_override("shadow_offset_y", 2)
++	wordmark_box.add_child(tagline)
++
++	# v2.5.8.26.32: darker contained preview chamber. No title text is shown
++	# above the preview, and the BoardView style below is static to avoid a
++	# distracting center-tile pulse on the landing page.
+ 	var preview_shell: PanelContainer = PanelContainer.new()
+-	preview_shell.custom_minimum_size = Vector2(360, 160)
++	preview_shell.name = "MainMenuPreviewChamber"
++	preview_shell.custom_minimum_size = Vector2(372, 174)
+ 	preview_shell.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+-	preview_shell.add_theme_stylebox_override("panel", _make_rounded_style(Color("#050917", 0.88), Color("#D4AF37", 0.72), 2, 28))
++	preview_shell.add_theme_stylebox_override("panel", _make_rounded_style(Color("#030816", 0.94), Color("#D4AF37", 0.82), 2, 30))
+ 	box.add_child(preview_shell)
+ 	var preview_margin: MarginContainer = MarginContainer.new()
+-	preview_margin.add_theme_constant_override("margin_left", 12)
+-	preview_margin.add_theme_constant_override("margin_right", 12)
++	preview_margin.add_theme_constant_override("margin_left", 10)
++	preview_margin.add_theme_constant_override("margin_right", 10)
+ 	preview_margin.add_theme_constant_override("margin_top", 10)
+ 	preview_margin.add_theme_constant_override("margin_bottom", 10)
+ 	preview_shell.add_child(preview_margin)
++	var preview_content: HBoxContainer = HBoxContainer.new()
++	preview_content.alignment = BoxContainer.ALIGNMENT_CENTER
++	preview_content.add_theme_constant_override("separation", 7)
++	preview_margin.add_child(preview_content)
++
++	var left_hud: VBoxContainer = _make_main_menu_preview_hud(true)
++	preview_content.add_child(left_hud)
++
++	var board_frame: PanelContainer = PanelContainer.new()
++	board_frame.name = "MainMenuPreviewBoardFrame"
++	board_frame.custom_minimum_size = Vector2(292, 138)
++	board_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
++	board_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
++	board_frame.add_theme_stylebox_override("panel", _make_rounded_style(Color("#071321", 0.96), Color("#28E0FF", 0.26), 1, 18))
++	preview_content.add_child(board_frame)
++	var board_margin: MarginContainer = MarginContainer.new()
++	board_margin.add_theme_constant_override("margin_left", 5)
++	board_margin.add_theme_constant_override("margin_right", 5)
++	board_margin.add_theme_constant_override("margin_top", 5)
++	board_margin.add_theme_constant_override("margin_bottom", 5)
++	board_frame.add_child(board_margin)
+ 	menu_preview_board = BoardView.new()
+-	menu_preview_board.custom_minimum_size = Vector2(340, 140)
++	menu_preview_board.custom_minimum_size = Vector2(282, 128)
+ 	menu_preview_board.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+ 	menu_preview_board.size_flags_vertical = Control.SIZE_EXPAND_FILL
+ 	menu_preview_board.mouse_filter = Control.MOUSE_FILTER_IGNORE
+-	preview_margin.add_child(menu_preview_board)
++	board_margin.add_child(menu_preview_board)
++
++	var right_hud: VBoxContainer = _make_main_menu_preview_hud(false)
++	preview_content.add_child(right_hud)
+ 
+ 	menu_preview_label = Label.new()
+ 	menu_preview_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+-	menu_preview_label.add_theme_font_size_override("font_size", 15)
+-	menu_preview_label.add_theme_color_override("font_color", Color("#B8C4D8"))
++	menu_preview_label.add_theme_font_size_override("font_size", 14)
++	menu_preview_label.add_theme_color_override("font_color", Color("#C9D7EE"))
++	menu_preview_label.add_theme_color_override("font_shadow_color", Color("#000000", 0.72))
++	menu_preview_label.add_theme_constant_override("shadow_offset_x", 1)
++	menu_preview_label.add_theme_constant_override("shadow_offset_y", 1)
+ 	box.add_child(menu_preview_label)
+ 
+ 	continue_game_button = _add_menu_button(box, "Continue", "Jump back into your saved match.", _on_main_menu_continue_game, "quick")
+@@ -3978,11 +4063,44 @@
+ 	parent.add_child(button)
+ 	return button
+ 
++func _make_main_menu_preview_hud(left_side: bool) -> VBoxContainer:
++	var hud: VBoxContainer = VBoxContainer.new()
++	hud.custom_minimum_size = Vector2(26, 118)
++	hud.size_flags_vertical = Control.SIZE_EXPAND_FILL
++	hud.alignment = BoxContainer.ALIGNMENT_CENTER
++	hud.add_theme_constant_override("separation", 6)
++	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
++
++	var top_dot: Label = Label.new()
++	top_dot.text = "◆"
++	top_dot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
++	top_dot.add_theme_font_size_override("font_size", 13)
++	top_dot.add_theme_color_override("font_color", Color("#F2C14E", 0.74))
++	hud.add_child(top_dot)
++
++	for i in range(5):
++		var line: ColorRect = ColorRect.new()
++		var width_value: float = 10.0 + float((i * 7) % 13)
++		if not left_side:
++			width_value = 23.0 - float((i * 5) % 11)
++		line.custom_minimum_size = Vector2(width_value, 2.0)
++		line.color = Color("#28E0FF", 0.16 + 0.045 * float(i % 2))
++		hud.add_child(line)
++
++	var lower_dot: Label = Label.new()
++	lower_dot.text = "◆"
++	lower_dot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
++	lower_dot.add_theme_font_size_override("font_size", 10)
++	lower_dot.add_theme_color_override("font_color", Color("#D4AF37", 0.42))
++	hud.add_child(lower_dot)
++	return hud
++
++
+ func _add_menu_button(parent: Container, title: String, subtitle: String, callback: Callable, preview_id: String = "quick") -> Button:
+ 	var button: Button = Button.new()
+ 	button.text = title
+ 	button.tooltip_text = subtitle
+-	button.custom_minimum_size = Vector2(320, 56)
++	button.custom_minimum_size = Vector2(334, 54)
+ 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+ 	button.add_theme_font_size_override("font_size", READABILITY_MIN_BUTTON_FONT_SIZE)
+ 	_style_button(button, "gold" if preview_id == "quick" else "menu")
+@@ -4037,7 +4155,7 @@
+ 			menu_preview_rules.new_game(SigmaRules.classic_config())
+ 			label_text = "New Game · choose a mode, then preview"
+ 	menu_preview_board.set_rules(menu_preview_rules)
+-	menu_preview_board.set_living_preview(true, preview_id)
++	menu_preview_board.set_living_preview(true, "static_display")
+ 	if menu_preview_label != null:
+ 		menu_preview_label.text = label_text
+ 
+--- /mnt/data/work_v31/SIGMA_Godot_v2_5_8_26_31_RuntimeCleanupPass/scripts/BoardView.gd	2026-06-28 10:52:00.000000000 +0000
++++ /mnt/data/SIGMA_Godot_v2_5_8_26_32_MainMenuClarityPreviewPass/scripts/BoardView.gd	2026-06-28 12:22:24.106849696 +0000
+@@ -123,9 +123,15 @@
+ 	set_process(true)
+ 
+ func _process(_delta: float) -> void:
+-	# Classic SIGMA Tokens use a subtle idle underglow pulse, so the board
+-	# redraws continuously. This is presentation-only and never changes legality.
+-	if token_preview_mode or rules != null or coin_motion_active or living_preview_mode or selected.x >= 0 or deploy_mode or _current_turn_in_peril() or not preview_action.is_empty() or illegal_marker.x >= 0:
++	# Classic SIGMA Tokens use a subtle idle underglow pulse, so active boards
++	# redraw continuously. The v2.5.8.26.32 main-menu static display opts out
++	# so the landing preview stays calm and does not animate its center tile.
++	var needs_idle_redraw: bool = token_preview_mode or coin_motion_active or selected.x >= 0 or deploy_mode or _current_turn_in_peril() or not preview_action.is_empty() or illegal_marker.x >= 0
++	if rules != null and not (living_preview_mode and living_preview_style == "static_display"):
++		needs_idle_redraw = true
++	if living_preview_mode and living_preview_style != "static_display":
++		needs_idle_redraw = true
++	if needs_idle_redraw:
+ 		queue_redraw()
+ 
+ func set_rules(r: SigmaRules) -> void:
+@@ -1309,6 +1315,9 @@
+ func _draw_living_preview_effects() -> void:
+ 	if not living_preview_mode:
+ 		return
++	if living_preview_style == "static_display":
++		_draw_static_living_preview_frame()
++		return
+ 	var pulse: float = _pulse_value()
+ 	var tick: float = float(Time.get_ticks_msec() % 2400) / 2400.0
+ 	draw_rect(board_rect.grow(6.0 + pulse * 2.0), _with_alpha(color_gold, 0.20 + pulse * 0.18), false, 3.0)
+@@ -1342,6 +1351,16 @@
+ 	elif living_preview_style == "collections":
+ 		_draw_collections_menu_animation(pulse, tick)
+ 
++func _draw_static_living_preview_frame() -> void:
++	# Static-only landing-page showcase frame. No pulsing center tile, no moving
++	# targeting marker, and no gameplay legality involvement.
++	draw_rect(board_rect.grow(5.0), _with_alpha(color_gold, 0.18), false, 2.2)
++	draw_rect(board_rect.grow(2.0), Color("#28E0FF", 0.08), false, 1.2)
++	var rail_alpha: float = 0.14
++	draw_line(board_rect.position + Vector2(0, -7), board_rect.position + Vector2(board_rect.size.x, -7), Color("#F2C14E", rail_alpha), 1.1)
++	draw_line(board_rect.position + Vector2(0, board_rect.size.y + 7), board_rect.position + Vector2(board_rect.size.x, board_rect.size.y + 7), Color("#E8EDF2", rail_alpha), 1.1)
++
++
+ func _draw_living_row_glow(row: int, col: Color, alpha: float) -> void:
+ 	for c in range(BOARD_SIZE):
+ 		draw_rect(_cell_rect(Vector2i(row, c)).grow(-7), _with_alpha(col, alpha), true)
+@@ -1371,13 +1390,7 @@
+ 	draw_circle(right_sentinel, cell_size * 0.08, _with_alpha(color_select, 0.58))
+ 	_draw_arrow(_cell_center(Vector2i(BOARD_SIZE - 1, 2)), _cell_center(Vector2i(BOARD_SIZE - 2, 2)), _with_alpha(color_move, 0.28 + pulse * 0.34), 3.0)
+ 	_draw_arrow(_cell_center(Vector2i(0, 6)), _cell_center(Vector2i(1, 6)), _with_alpha(color_move, 0.22 + pulse * 0.28), 3.0)
+-	var center_rect: Rect2 = _cell_rect(Vector2i(4, 4))
+-	draw_rect(center_rect.grow(-8), _with_alpha(color_gold, 0.08 + pulse * 0.16), true)
+-	draw_arc(center_rect.get_center(), cell_size * (0.38 + pulse * 0.08), 0.0, TAU, 48, _with_alpha(color_gold, 0.58), 2.5)
+-	for sparkle_index in range(6):
+-		var angle: float = float(sparkle_index) / 6.0 * TAU + tick * TAU
+-		var sparkle: Vector2 = center_rect.get_center() + Vector2(cos(angle), sin(angle)) * cell_size * 1.15
+-		draw_circle(sparkle, cell_size * 0.035, _with_alpha(color_gold, 0.45 + pulse * 0.35))
++	# v2.5.8.26.32: no animated center-tile marker on the landing preview.
+ 
+ func _draw_tutorial_menu_animation(pulse: float) -> void:
+ 	# Tutorial preview teaches the family of pieces before any page opens.
